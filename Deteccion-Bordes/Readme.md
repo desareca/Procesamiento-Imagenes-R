@@ -10,5 +10,5 @@ Se consideró realizar la deteccion de bordes en 3 pasos:
 - Generar bordes.
 - Eliminar información no relevante (mediante umbral).
 
-Para mayor detalle revisar:
+Para mayor detalle revisar: https://rpubs.com/desareca/Deteccion-Bordes-en-R
 
