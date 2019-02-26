@@ -10,4 +10,5 @@ EL objetivo es construir un clasificador a partir de sólo una imagen de cada su
 - Aplicar imagenes con ruido para probar su desempeño.
 
 Para ver más detalle sobre el trbajo revisar:
+
 http://rpubs.com/desareca/Clasificador-Imagenes
