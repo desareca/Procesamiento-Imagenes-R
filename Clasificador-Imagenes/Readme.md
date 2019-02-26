@@ -1,8 +1,6 @@
 # Resumen
 
-Este trabajo muestra un clasificador de rostros a partir de filtros de correlación, par mayor detalle sobre este tema revisar:
-
-https://rpubs.com/desareca/Reconocimiento-Imagenes-Correlacion
+Continuando con el trabajo de [Reconocimiento de Imagenes por Correlacion](https://rpubs.com/desareca/Reconocimiento-Imagenes-Correlacion), desarrollaremos un clasificador para los 13 sujetos.
 
 EL objetivo es construir un clasificador a partir de sólo una imagen de cada sujeto y para esto seguiremos la siguiente estrategia:
 
