@@ -8,6 +8,6 @@ Para lidiar con este problema vamos a extraer características de cada imagen y 
 
 1- [Sumas y diferencisa de filas y columnas](http://rpubs.com/desareca/Clasificacion-Imagenes-Extraccion-Caracteristicas)
 
-2- [Mínima distancia](http://rpubs.com/desareca/473362)
+2- [Mínima distancia](http://rpubs.com/desareca/Min-dist)
 
-3- [Correlación](http://rpubs.com/desareca/473366)
+3- [Correlación](http://rpubs.com/desareca/Class-corr-coef)
