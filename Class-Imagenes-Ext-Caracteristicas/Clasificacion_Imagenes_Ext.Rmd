@@ -1,0 +1,262 @@
+---
+title: "Clasificación Imágenes - Extracción Carácterísticas"
+author: "crsd"
+date: "05 de marzo de 2019"
+output: 
+      html_document:
+            code_folding: hide
+            toc: true
+            toc_depth: 3
+            number_sections: false
+            theme: united
+            highlight: tango
+            css: air.css
+            keep_md: true
+---
+
+```{r setup, cache=FALSE}
+suppressMessages(library(EBImage))
+suppressMessages(library(rgl))
+suppressMessages(library(caret))
+suppressMessages(library(dplyr))
+suppressMessages(library(tidyr))
+suppressMessages(library(kknn))
+suppressMessages(library(randomForest))
+suppressMessages(library(ggplot2))
+
+```
+
+# Resumen
+
+MNIST ("Instituto Nacional Modificado de Estándares y Tecnología") es el conjunto de datos de facto de "visión mundial" de la visión de computadora. Desde su lanzamiento en 1999, este clásico conjunto de datos de imágenes manuscritas ha servido como base para los algoritmos de clasificación de referencia. A medida que surgen nuevas técnicas de aprendizaje automático, MNIST sigue siendo un recurso confiable para investigadores y estudiantes por igual.
+
+
+
+El conjunto de datos mixto de Instituto Nacional de estándares y tecnología (MNIST) es una colección de 70.000 pequeñas imágenes de dígitos escritos a mano. Los datos fue creados para actuar como un referente para los algoritmos de reconocimiento de imagen. Aunque MNIST las imágenes son pequeñas (28 x 28 pixeles) y sólo hay 10 dígitos posibles (cero a nueve) a reconocer y hay 42.0000 imágenes de formación para la creación de un modelo de reconocimiento de imagen (con 28.000 imágenes tendidas a probar la exactitud de un modelo), la experiencia ha demostrado que reconocer las imágenes MNIST es un problema difícil.
+
+Para lidiar con este problema vamos a extraer características de cada imagen y disminuir el tamaño de cada muestra. Con esto probaremos el desempeño de clasificadores.
+
+# Extraccion de características
+
+Al revisar los datos tenemos un archivo con 42000 imágenes con 785 variables (28x28 píxeles) cada una, esto resulta en 33 millones de datos aproximadamente. Donde la primera columna es el número en la imagen y las 784 restantes corresponden a la imagen del número, como se puede er en la imagen siguiente (primeros 250 dígitos).
+
+
+```{r Load data, cache=TRUE, comment=""}
+# lee archivo con datos de entrenamiento (imagenes de 28x28)
+train <- read.csv("train.csv")
+train$label <- factor(train$label)
+train[,c(2:785)] <- round(train[,c(2:785)], digits = 0)
+
+dim(train)
+str(train[,1:10])
+
+l <- 1
+for (i in 1:10) {
+      for (k in 1:25) {
+            if(k==1){
+                  b <- matrix(unlist(train[l,-1])/255, ncol = 28, nrow = 28)
+            }
+            if(k>1){
+                  a <- matrix(unlist(train[l,-1])/255, ncol = 28, nrow = 28)
+                  b <- rbind(b,a) 
+            }
+            l <- l+1
+      }
+      if(i==1){
+            c <- b
+            remove(b)
+      }
+      if(i>1){
+            c <- cbind(c,b)
+            remove(b)
+      }
+}
+
+display(colormap(c, palette = topo.colors(256)), method = "raster")
+title("Primeros 250 dígitos escritos a mano")
+```
+
+Para disminuir la gran cantidad de datos es necesario realizar algunas transformaciones y extraer información resumida de la imagen. En este caso consideraremos los siguientes pasos:
+
+- **Reagrupar píxeles**: Se ordenarán los píxeles en matrices de 28 x 28.
+- **Extraer características**:
+      - **Suma Vertical**: Se cálcula la suma de todas las filas para cada columna.
+      
+      > $P_y = \sum_{i=1}^{28} Im(i,j=1:28)$
+      
+      - **Suma Horizontal**: Se cálcula la suma de todas las columnas para cada fila
+      
+      > $P_x = \sum_{j=1}^{28} Im(i=1:28,j)$
+      
+      - **Diferencia Vertical**: Se cálcula la suma de las diferencias absolutas de filas para cada columna
+      
+      > $S_y = \sum_{i=1}^{27} |Im(i+1,j=1:28) - Im(i,j=1:28)|$
+      
+      - **Diferencia Horizontal**: Se cálcula la suma de las diferencias absolutas de filas para cada columna
+      
+      > $S_x = \sum_{j=1}^{27} |Im(i=1:28, j+1) - Im(i=1:28, j)|$
+
+
+Con esto podemos reducir el número de dimensiones de 785 a 113, que representa alrededor de un 15% de los datos originales.
+
+A continuación podemos observar la estructura de cada característica para cada píxel para cada clase, observando distribuciones ligeramente diferentes en cada caso, esto nos servirá a la hora de clasificar cada clase.
+
+```{r Extraccion, cache=TRUE, comment="", eval=TRUE}
+# Extraccion de caracteristicas
+t <- data.frame()
+for (i in 1:dim(train)[1]) {
+      a <- matrix(unlist(train[i,-1]), ncol = 28, nrow = 28)
+      Py <- colSums(a)
+      Px <- rowSums(a)
+      Sx <- rowSums(abs(a[,2:28]-a[,1:27]))
+      Sy <- colSums(abs(a[2:28,]-a[1:27,]))
+      nn <- cbind(t(Px), t(Py), t(Sx), t(Sy))
+      nn <- data.frame(nn, stringsAsFactors = FALSE)
+      t[i,1] <- train[i,1]
+      t[i,2:113] <- nn
+}
+
+nt <- "label"
+for (i in 1:28) {nt <- c(nt, paste0("Py",i))}
+for (i in 1:28) {nt <- c(nt, paste0("Px",i))}
+for (i in 1:28) {nt <- c(nt, paste0("Sx",i))}
+for (i in 1:28) {nt <- c(nt, paste0("Sy",i))}
+colnames(t) <- nt
+saveRDS(t,"caract_1_data.rds")
+remove(nn, Sy, Sx, Py, Px, a, i, nt)
+```
+
+
+```{r MuestraDatos, cache=TRUE, comment=""}
+t1 <- readRDS("caract_1_data.rds")
+t1$label <- factor(t1$label)
+
+dim(t1)
+str(t1[,1:10])
+
+t2 <- gather(t1, key = caracteristica, value = valor, Py1:Sy28, factor_key = TRUE)
+
+a1 <- 1176000
+a2 <- 1176000*2
+a3 <- 1176000*3
+a4 <- 1176000*4
+
+ggplot(data=t2[(1+a1):a2,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + ggtitle("Característica: Suma píxeles eje x")
+ggplot(data=t2[1:a1,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + ggtitle("Característica: Suma píxeles eje y")
+ggplot(data=t2[(1+a2):a3,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + ggtitle("Característica: Suma de diferencia de píxeles eje x")
+ggplot(data=t2[(1+a3):a4,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + ggtitle("Característica: Suma de diferencia de píxeles eje y")
+```
+
+
+# Modelo
+
+Antes demodelar debemos dividir los datos reducidos en conjunto de entrenamiento y prueba, con 70% y 30% del total respectivamente.
+
+Con el conjunto de entrenamiento modelaremos 2 clasificadores:
+
+- **LogitBoost**, Este es un algoritmo basado en arboldes de decisión. Para mayor información revisar:
+
+      https://www.rdocumentation.org/packages/caTools/versions/1.17.1/topics/LogitBoost
+
+- **KNN**, Este algoritmo realiza la clasificación de k-nearest neighbor de un conjunto de prueba utilizando un conjunto de entrenamiento. Para cada fila del conjunto de pruebas, se encuentran los k vectores de conjunto de entrenamiento más cercanos (según la distancia de Minkowski), y la clasificación se realiza a través del máximo de densidades del núcleo sumadas. Además se pueden predecir incluso variables ordinales y continuas. Para mayor información revisar:
+
+      https://www.rdocumentation.org/packages/kknn/versions/1.3.1/topics/kknn
+
+
+En ambos casos consideraremos para entrenamiento validación cruzada con 5 folds.
+
+El resultado del entrenamiento se muestra a continuación.
+
+```{r Clasificador, cache=TRUE, comment="", eval=TRUE}
+# crea conjunto entrenamiento 70%-30%
+set.seed(28916022)
+Index1 <- createDataPartition(y = t1$label, p = 0.7, list = FALSE)
+TEST <- t1[-Index1,]
+TRAIN <- t1[Index1,]
+# Genera modelos
+trC=trainControl(method="cv", number=5)
+m="Accuracy"
+# KNN
+set.seed(2891)
+KNNGrid <-  expand.grid(kmax = 9, distance = 1, kernel = "epanechnikov")
+fitKNN <- train(label~., data=TRAIN, method="kknn", metric=m,
+                trControl=trC, tuneGrid = KNNGrid)
+PredKNNtrain<-predict(fitKNN, newdata=TRAIN)
+PredKNNtest<-predict(fitKNN, newdata=TEST)
+CM_Train_KNN <- confusionMatrix(PredKNNtrain, TRAIN$label)
+CM_Test_KNN <- confusionMatrix(PredKNNtest, TEST$label)
+saveRDS(fitKNN, "fitKNN.rds")
+saveRDS(CM_Train_KNN, "CM_Train_KNN.rds")
+saveRDS(CM_Test_KNN, "CM_Test_KNN.rds")
+# LogitBoost
+fitLGB <- train(label~., data=TRAIN, method="LogitBoost", metric=m, trControl=trC)
+PredLGBtrain<-predict(fitLGB, newdata=TRAIN)
+PredLGBtest<-predict(fitLGB, newdata=TEST)
+CM_Train_LGB <- confusionMatrix(PredLGBtrain, TRAIN$label)
+CM_Test_LGB <- confusionMatrix(PredLGBtest, TEST$label)
+saveRDS(fitLGB, "fitLGB.rds")
+saveRDS(CM_Train_LGB, "CM_Train_LGB.rds")
+saveRDS(CM_Test_LGB, "CM_Test_LGB.rds")
+```
+
+
+```{r modelos, cache=TRUE, comment=""}
+fitKNN <- readRDS("fitKNN.rds")
+fitLGB <- readRDS("fitLGB.rds")
+
+fitKNN
+fitLGB
+```
+
+
+# Pruebas
+
+Ambos clasificadores presentan un buen desempeño para clasificar digitos. Ahora se muestra el resultado de las pruebas con el 30% de datos asignado al conjunto de pruebas.
+
+```{r pruebas, cache=TRUE, comment=""}
+CM_Test_KNN <- readRDS("CM_Test_KNN.rds")
+CM_Test_LGB <- readRDS("CM_Test_LGB.rds")
+
+CM_Test_KNN
+CM_Test_LGB
+```
+
+El resultado es similar al entrenamiento, por lo que ambos clasificadores funcionan bien y no están sobre entrenados.
+
+---
+
+# Conclusiones
+
+Ambos clasificadores presentan un buen desempeño superior al 92%.
+
+La reduccion de dimensiones permitió reducir el tiempo de ejecución en mi computador, aunque de todas maneras tomó un tiempo considerable. Esto es importante, ya que si consideramos un problema similar con imagenes más grandes la cantidad de dimensiones amentaría.
+
+Para solucionar esto se podría implementar otro preprocesamiento adicional a la extracción de las carácterísticas desarrollado, como análisis PCA y así reducir aún más la cantidad de dimensiones. Otra opción es extraer carácterísticas no por píxel sino por clase, lo que reduciría la dimensionalidad a 11 variables.
+
+---
+
+# Referencia
+
+Para revisar el código de este trabajo ir a:
+
+https://github.com/desareca/Procesamiento-Imagenes-R
+
+---
+
+# Información de sesión
+
+```{r session, cache=FALSE, comment=""}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
