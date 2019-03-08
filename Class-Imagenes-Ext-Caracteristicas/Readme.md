@@ -6,7 +6,7 @@ El conjunto de datos mixto de Instituto Nacional de estándares y tecnología (M
 
 Para lidiar con este problema vamos a extraer características de cada imagen y disminuir el tamaño de cada muestra. Con esto probaremos el desempeño de clasificadores. Consideraremos 3 estrategias:
 
-1- [Sumas y diferencisa de filas y columnas](http://rpubs.com/desareca/Clasificacion-Imagenes-Extraccion-Caracteristicas)
+1- [Sumas y diferencias de filas y columnas](http://rpubs.com/desareca/Clasificacion-Imagenes-Extraccion-Caracteristicas)
 
 2- [Mínima distancia](http://rpubs.com/desareca/Min-dist)
 
