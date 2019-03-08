@@ -1,0 +1,289 @@
+---
+title: "Clasificación Imágenes - Redes Neuronales"
+author: "crsd"
+date: "08 de marzo de 2019"
+output: 
+      html_document:
+            code_folding: hide
+            toc: true
+            toc_depth: 3
+            number_sections: false
+            theme: united
+            highlight: tango
+            css: air.css
+            keep_md: true
+---
+
+```{r setup, cache=FALSE}
+suppressMessages(library(EBImage))
+suppressMessages(library(rgl))
+suppressMessages(library(dplyr))
+suppressMessages(library(tidyr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(h2o))
+```
+
+# Resumen
+
+MNIST ("Instituto Nacional Modificado de Estándares y Tecnología") es el conjunto de datos de facto de "visión mundial" de la visión de computadora. Desde su lanzamiento en 1999, este clásico conjunto de datos de imágenes manuscritas ha servido como base para los algoritmos de clasificación de referencia. A medida que surgen nuevas técnicas de aprendizaje automático, MNIST sigue siendo un recurso confiable para investigadores y estudiantes por igual.
+
+
+El conjunto de datos mixto de Instituto Nacional de estándares y tecnología (MNIST) es una colección de 70.000 pequeñas imágenes de dígitos escritos a mano. Los datos fue creados para actuar como un referente para los algoritmos de reconocimiento de imagen. Aunque MNIST las imágenes son pequeñas (28 x 28 pixeles) y sólo hay 10 dígitos posibles (cero a nueve) a reconocer y hay 42.0000 imágenes de formación para la creación de un modelo de reconocimiento de imagen (con 28.000 imágenes tendidas a probar la exactitud de un modelo), la experiencia ha demostrado que reconocer las imágenes MNIST es un problema difícil.
+
+Para lidiar con este problema vamos a extraer características de cada imagen, con esto lograremos disminuir la cantidad de datos de entrenamiento. Luego implementaremos una red neuronal con el paquete H2O.
+
+# Extraccion de características
+
+Al revisar los datos tenemos un archivo con 42000 imágenes con 785 variables (28x28 píxeles) cada una, esto resulta en 33 millones de datos aproximadamente. Donde la primera columna es el número en la imagen y las 784 restantes corresponden a la imagen del número, como se puede ver en la imagen siguiente (primeros 250 dígitos).
+
+```{r LoadImage data, cache=TRUE, comment=""}
+# lee archivo con datos de entrenamiento (imagenes de 28x28)
+train <- read.csv("train.csv")
+train$label <- factor(train$label)
+train[,c(2:785)] <- round(train[,c(2:785)], digits = 0)
+
+dim(train)
+str(train[,1:10])
+
+l <- 1
+for (i in 1:10) {
+      for (k in 1:25) {
+            if(k==1){
+                  b <- matrix(unlist(train[l,-1])/255, ncol = 28, nrow = 28)
+            }
+            if(k>1){
+                  a <- matrix(unlist(train[l,-1])/255, ncol = 28, nrow = 28)
+                  b <- rbind(b,a) 
+            }
+            l <- l+1
+      }
+      if(i==1){
+            c <- b
+            remove(b)
+      }
+      if(i>1){
+            c <- cbind(c,b)
+            remove(b)
+      }
+}
+
+display(colormap(c, palette = topo.colors(256)), method = "raster")
+title("Primeros 250 dígitos escritos a mano")
+remove(train)
+```
+
+
+```{r Load data, cache=TRUE, comment=""}
+# Carga características Px, Py, Sx, Sy
+train <- readRDS("caract_1_data.rds")
+# Carga distancia respecto a referencia
+t <- readRDS("caract_2_data.rds")
+# Une ambas carateristicas en un objeto
+train <- cbind(train, t[,-1])
+remove(t)
+train$label <- as.factor(train$label)
+```
+
+Dependiendo de las capacidades del equipo que efectúe el modelo puede ser necesario disminuir la cantidad de variables, en este caso se realizará en un computador personal, por lo que se hace necesario disminuir la cantidad de datos.
+
+Para disminuir la gran cantidad de datos es necesario realizar algunas transformaciones y extraer información resumida de la imagen. En este caso consideraremos los siguientes pasos, que han dado buenos resultados con otros modelos:
+
+- **Reagrupar píxeles**: Se ordenarán los píxeles en matrices de 28 x 28.
+- **Extraer características**:
+      - **Suma Vertical**: Se cálcula la suma de todas las filas para cada columna.
+      
+      > $P_y = \sum_{i=1}^{28} Im(i,j=1:28)$
+      
+      - **Suma Horizontal**: Se cálcula la suma de todas las columnas para cada fila
+      
+      > $P_x = \sum_{j=1}^{28} Im(i=1:28,j)$
+      
+      - **Diferencia Vertical**: Se cálcula la suma de las diferencias absolutas de filas para cada columna
+      
+      > $S_y = \sum_{i=1}^{27} |Im(i+1,j=1:28) - Im(i,j=1:28)|$
+      
+      - **Diferencia Horizontal**: Se cálcula la suma de las diferencias absolutas de filas para cada columna
+      
+      > $S_x = \sum_{j=1}^{27} |Im(i=1:28, j+1) - Im(i=1:28, j)|$
+      
+      - **Distancia**: Se calcula la distancia euclidiana de cada imagen por cada referencia de clase $I_{ref}^c$ . Para determinar esta referencia se considera el promedio de las imagenes de cada clase.
+      
+      > $I_{ref}^c(i=1:28,j=1:28) = \frac{1}{n} \sum_{k=1}^{n} Im^c(i=1:28,j=1:28,k)$
+      
+      > $D^c =  \sqrt{\sum_{i=1}^{28} \sum_{j=1}^{28} (I_{ref}^c(i,j) - Im(i,j))^2}$
+
+El superindice $^c$ representa una imagen o medida asociada a la clase $c$.
+
+Con esto podemos reducir el número de dimensiones de 785 a 123, que representa alrededor de un 16% de los datos originales.
+
+*Nota:* *Las características anteriormente mensionadas fueron cargadas a partir de otros modelos. Para revisar el código en detalle ver [Distancia](https://rpubs.com/desareca/Min-dist) y [Suma Vertical/Horizaontal y Diferencia Vertical/Horizantal](https://rpubs.com/desareca/Clasificacion-Imagenes-Extraccion-Caracteristicas)*
+
+A continuación podemos observar la estructura de cada característica para cada clase, observando distribuciones ligeramente diferentes en cada caso, esto nos servirá a la hora de clasificar cada clase.
+
+
+```{r MuestraDatos, cache=TRUE, comment=""}
+t2 <- gather(train, key = caracteristica, 
+             value = valor, Py1:eucl9, factor_key = TRUE)
+a1 <- dim(train)[1]*28
+a2 <- dim(train)[1]*28*2
+a3 <- dim(train)[1]*28*3
+a4 <- dim(train)[1]*28*4
+a5 <- dim(train)[1]*10
+
+ggplot(data=t2[(1+a1):a2,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + 
+      ggtitle("Característica: Suma píxeles eje x") +
+      theme(axis.text.x = element_text(angle = 90))
+ggplot(data=t2[1:a1,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + 
+      ggtitle("Característica: Suma píxeles eje y") +
+      theme(axis.text.x = element_text(angle = 90))
+ggplot(data=t2[(1+a2):a3,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + 
+      ggtitle("Característica: Suma de diferencia de píxeles eje x") +
+      theme(axis.text.x = element_text(angle = 90))
+ggplot(data=t2[(1+a3):a4,], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + 
+      ggtitle("Característica: Suma de diferencia de píxeles eje y") +
+      theme(axis.text.x = element_text(angle = 90))
+ggplot(data=t2[(1+a4):(a4+a5),], aes(caracteristica, valor,color=label)) +
+      geom_boxplot() + facet_grid(label~.) + 
+      ggtitle("Característica: Distancia por cada dígito") +
+      theme(axis.text.x = element_text(angle = 90))
+remove(t2, a1, a2, a3, a4, a5)
+```
+
+
+# Red Neuronal
+
+Para desarrollar la red neuronal que clasifique dígitos vamos a utilizar el paquete **H2O**.
+
+**H2O** es un producto creado por la compañía [H2O.ai](https://www.h2o.ai/) con el objetivo de combinar los principales algoritmos de machine learning y aprendizaje estadístico con el Big Data. Gracias a su forma de comprimir y almacenar los datos, H2O es capaz de trabajar con millones de registros en un único ordenador (emplea todos sus cores) o en un cluster de muchos ordenadores. Internamente, H2O está escrito en Java y sigue el paradigma Key/Value para almacenar los datos y Map/Reduce para sus algoritmos.
+
+Para más detalles sobre este paquete revisar [(Machine Learning con H2O y R)](https://rpubs.com/Joaquin_AR/406480).
+
+Comenzamos inicializando el cluster (local). Para esto utilizamos la función `h2o.init`. Tras iniciar el cluster (local), se muestran sus características, entre las que están: el número de cores activados (4), la memoria total del cluster (3.56GB), el número de nodos (1 porque se está empleando un único ordenador).
+
+Luego procedemos a dividir los datos en conjunto de entrenamiento y pruebas (70% y 30% respectivamente). Estos valores se consideraron debido a que generalmente entregan buenos resultados y para poder compara resultados con otros métodos (ver Referencia).
+
+Además, para la optimización de los hiperparámetrors, se considerará validación cruzada con 10 folds.
+
+```{r SplitData, cache=FALSE, comment="", eval=TRUE}
+# Creación de un cluster local con todos los cores disponibles.
+h2o.init(nthreads = -1, # Utiliza todoslos cores disponibles
+         max_mem_size = "4g") # Máxima memoria disponible para el cluster.
+train <- as.h2o(train)
+# Crea conjunto de entrenamiento y pruebas (70% y 30%)
+Index1 <- h2o.splitFrame(data = train, ratios = c(0.7), seed = 28916022)
+TRAIN   <- h2o.assign(data = Index1[[1]], key = "TRAIN")
+TEST    <- h2o.assign(data = Index1[[2]], key = "TEST")
+remove(train, Index1)
+```
+
+Para el desarrollo de la red neuronal se considera una arquitectura de 4 capas ocultas con 90, 70, 50 y 25 neuronas respectivamente, una capa inicial con 122 neuronas y una capa de salida con 10 neuronas.
+
+Además se consideran:
+
+ - Épocas: 3000 <br/>
+ - Función activación (capas ocultas): Rectifier (Relu) <br/>
+ - Muestra de datos a iterar por época = -1 (todos los datos disponibles) <br/>
+ - Adaptive learning rate (rho): 0.9999 <br/>
+ - Estandarización de variables de entrada: TRUE <br/>
+ - Función de distribución: Multinomial
+
+
+```{r modelo, cache=FALSE, comment=""}
+mod_1 = h2o.deeplearning(y = 'label', # Variable a clasificar
+                         training_frame = TRAIN, # conjunto de entrenamiento
+                         activation = 'Rectifier', # funcion activacion
+                         hidden = c(90, 70, 50, 25), # arquitectura red neuronal
+                         epochs = 3000, # epocas
+                         train_samples_per_iteration = -1,# Datos a iterar por epoca
+                         nfolds = 10, # nfold de validación cruzada
+                         seed = 300, # semilla
+                         rho = 0.9999, # Adaptive learning rate
+                         standardize = TRUE, # normalizacion variables entrada
+                         distribution = "multinomial", # funcion de distribucion
+                         model_id = "mod_1") #id
+saveRDS(mod_1, "NN.rds")
+```
+
+Una vez ajustada la red, podemos ver los detalles del modelo y la evolución del error por época.
+
+```{r MuestraModelo, cache=FALSE, comment=""}
+mod_1
+plot(mod_1)
+```
+
+
+# Pruebas
+
+A continuación podemos ver la matriz de confusión del connjunto de entrenamiento, donde se observa una precisión del 99.95% (error del 0.05%).
+
+```{r pruebaTrain, cache=FALSE, comment=""}
+h2o.confusionMatrix(mod_1, TRAIN)
+```
+
+Al realizar la matriz de confusión al conjunto de pruebas tenemos una precisión del 97.30% (error del 2.69%).
+
+```{r pruebaTest, cache=FALSE, comment=""}
+h2o.confusionMatrix(mod_1, TEST)
+```
+
+Además, a continuación se muestran las 50 variables más importantes, donde se encuentran con mayor importancia a las asociadas a la distancia con la imagen de referencia.
+
+```{r Importancia, cache=FALSE, comment=""}
+a <- as.data.frame(h2o.varimp(mod_1))
+ggplot(data=a[1:50,], aes(reorder(variable, -scaled_importance), scaled_importance)) +
+      geom_point(color = "red") + ggtitle("Importancia relativa de las primeras 50 variables") +
+      theme(axis.text.x = element_text(angle = 90)) + 
+      ylab("Importancia") + xlab("Variable") + ylim(0,1)
+```
+
+---
+
+# Conclusiones
+
+La reducción de dimensiones mediante la determincación de las carácterísticas anteriormente descritas no limitan el desempeño de la red y hacen posible una implementación liviana para un computador personal.
+
+La red neuronal presenta un buen desempeño, tanto para el conjunto de entrenamiento como para el conjunto de pruebas, por lo que es posible de generalizar para otros digitos que no estén en el conjunto de entrenamiento.
+
+Se puede considerar un modelo con aún menos variables, debido a que las distancia euclidea tienen mayor importancia relativa que el resto de variables. 
+
+
+---
+
+# Referencia
+
+- Código: 
+
+      https://github.com/desareca/Procesamiento-Imagenes-R
+
+- Extracción de carácterísticas:
+
+      https://rpubs.com/desareca/Min-dist <br/>
+      https://rpubs.com/desareca/Clasificacion-Imagenes-Extraccion-Caracteristicas
+      
+- Deep Learning y paquete H2O:
+
+      https://rpubs.com/Joaquin_AR/406480 <br/>
+      https://rpubs.com/rdelgado/402754 <br/>
+      https://www.h2o.ai/wp-content/uploads/2018/01/RBooklet.pdf <br/>
+      http://docs.h2o.ai/h2o-tutorials/latest-stable/tutorials/deeplearning/index.html
+      
+
+---
+
+# Información de sesión
+
+```{r session, cache=FALSE, comment=""}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
